@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>売上杯数レポート</title>
+<style>
+body{font-family:"Helvetica Neue",Arial,"Hiragino Sans","Yu Gothic",sans-serif;background:#f5f6f8;margin:0;padding:20px;}
+.cards{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;align-items:flex-start;}
+.card{flex:1 1 340px;min-width:300px;max-width:480px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08);}
+.header{background:linear-gradient(135deg,#8b1a1a,#b03a3a);color:#fff;padding:22px 20px;text-align:center;}
+.header h1{margin:0;font-size:20px;}
+.header p{margin:6px 0 0;font-size:13px;opacity:0.85;}
+.avg{background:#fdf3d0;text-align:center;padding:10px;font-size:14px;}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th{background:#2f5597;color:#fff;padding:10px 6px;font-size:13px;}
+td{padding:9px 6px;text-align:center;border-bottom:1px solid #f0f0f0;}
+.total td{font-weight:bold;}
+.footer{text-align:center;font-size:11px;color:#999;padding:14px;}
+.nav{margin:16px auto 0;text-align:center;}
+.navlink{display:inline-block;padding:6px 12px;margin:3px;border-radius:16px;background:#fff;color:#2f5597;border:none;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,0.08);cursor:pointer;font-family:inherit;}
+.navlink.active{background:#2f5597;color:#fff;}
+.msg{max-width:480px;margin:60px auto;text-align:center;color:#555;font-size:15px;line-height:1.7;}
+.msg button{margin-top:14px;padding:8px 18px;border:none;border-radius:16px;background:#2f5597;color:#fff;font-size:13px;cursor:pointer;font-family:inherit;}
+#container.loading{opacity:0.4;}
+</style>
+</head>
+<body>
+<div id="container"><div class="msg">読み込み中…</div></div>
+<script>
+(function () {
+  var container = document.getElementById('container');
+  var ID_RE = /^[A-Za-z0-9_-]{20,200}$/;
+  var id = '';
+  try { id = decodeURIComponent((location.hash || '').replace(/^#/, '')).trim(); } catch (e) { id = ''; }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+
+  function showMessage(text, retry) {
+    container.classList.remove('loading');
+    container.textContent = '';
+    var box = el('div', 'msg', text);
+    if (retry) {
+      var b = el('button', null, '再読み込み');
+      b.type = 'button';
+      b.addEventListener('click', function () { load(retry.month); });
+      box.appendChild(el('br'));
+      box.appendChild(b);
+    }
+    container.appendChild(box);
+  }
+
+  function endpoint(month) {
+    return 'https://script.google.com/macros/s/' + id + '/exec?format=json' +
+      (month ? '&m=' + encodeURIComponent(month) : '');
+  }
+
+  function renderCard(store, updated, tab) {
+    var card = el('div', 'card');
+    var header = el('div', 'header');
+    header.appendChild(el('h1', null, store.name));
+    if (!store.found) {
+      header.appendChild(el('p', null, tab + '分のデータが見つかりません'));
+      card.appendChild(header);
+      return card;
+    }
+    header.appendChild(el('p', null, '更新: ' + updated + '（' + tab + '分）'));
+    card.appendChild(header);
+    if (store.avg) card.appendChild(el('div', 'avg', store.avg));
+
+    var table = el('table');
+    var head = el('tr');
+    ['日付', '曜日', '売上', '杯'].forEach(function (t) { head.appendChild(el('th', null, t)); });
+    table.appendChild(head);
+    store.rows.forEach(function (row) {
+      var tr = el('tr', row.total ? 'total' : '');
+      var bg = row.total ? '#eeeeee' : (row.weekday === '土' ? '#dbe9f7' : (row.weekday === '日' ? '#f9dada' : ''));
+      [row.date, row.weekday, row.sales, row.cups].forEach(function (v, j) {
+        var td = el('td', null, v);
+        var cellBg = (j === 3 && row.good) ? '#a5d6a7' : bg;
+        if (cellBg) td.style.background = cellBg;
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    card.appendChild(table);
+    card.appendChild(el('div', 'footer', '自動更新レポート（アクセスするたびに最新の状態を表示します）'));
+    return card;
+  }
+
+  function render(data) {
+    if (!data || !Array.isArray(data.stores) || !Array.isArray(data.tabs)) throw new Error('bad data');
+    document.title = data.title || '売上杯数レポート';
+    container.classList.remove('loading');
+    container.textContent = '';
+
+    var cards = el('div', 'cards');
+    if (data.tab) {
+      data.stores.forEach(function (s) { cards.appendChild(renderCard(s, data.updated, data.tab)); });
+    } else {
+      var card = el('div', 'card');
+      var header = el('div', 'header');
+      header.appendChild(el('h1', null, data.title || '売上杯数レポート'));
+      header.appendChild(el('p', null, '表示できるデータがまだありません'));
+      card.appendChild(header);
+      cards.appendChild(card);
+    }
+    container.appendChild(cards);
+
+    var nav = el('div', 'nav');
+    data.tabs.forEach(function (name) {
+      var b = el('button', 'navlink' + (name === data.tab ? ' active' : ''), name);
+      b.type = 'button';
+      b.addEventListener('click', function () { load(name); });
+      nav.appendChild(b);
+    });
+    container.appendChild(nav);
+  }
+
+  function load(month) {
+    container.classList.add('loading');
+    fetch(endpoint(month), { credentials: 'omit', redirect: 'follow', cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(render)
+      .catch(function () {
+        showMessage('読み込めませんでした。しばらくしてから、もう一度お試しください。', { month: month });
+      });
+  }
+
+  if (!ID_RE.test(id)) {
+    showMessage('このページは、専用のURLからご覧ください。');
+  } else {
+    load(null);
+  }
+})();
+</script>
+</body>
+</html>
